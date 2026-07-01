@@ -1,0 +1,7 @@
+/data
+
+# Ignorar entornos virtuales y cachés de Python
+__pycache__/
+.ipynb_checkpoints/
+.venv/
+venv/
