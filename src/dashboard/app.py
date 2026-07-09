@@ -8,10 +8,10 @@ Ejecutar desde la raíz del repo (TFM/):
 """
 
 import streamlit as st
+from pathlib import Path
 
-from data_loader import load_players, filter_players, get_player_row, load_team_match_stats
+from data_loader import load_players, filter_players, get_player_row, load_team_match_stats, get_load_diagnostics
 from similarity_engine import (
-    compute_pca_profile,
     compute_similarity_scores,
     compute_team_style_reference,
     compute_team_fit_scores,
@@ -20,17 +20,26 @@ from visualizations import style_radar_chart, similarity_bar_chart
 
 st.set_page_config(page_title="Scouting Dashboard — UD Las Palmas", layout="wide")
 
-st.title("Sistema de identificación y comparación de jugadores")
+# --- Escudo + título --------------------------------------------------------
+# Coloca el escudo en src/dashboard/assets/escudo_udlp.png (un PNG con fondo
+# transparente queda mejor). Si el fichero no existe todavía, el título se
+# muestra igualmente sin romper la app.
+ASSETS_DIR = Path(__file__).resolve().parent / "assets"
+ESCUDO_PATH = next(
+    (p for p in [ASSETS_DIR / "escudo_udlp.png", ASSETS_DIR / "escudo_udlp.jpg"] if p.exists()),
+    None,
+)
+
+col_escudo, col_titulo = st.columns([1, 9])
+with col_escudo:
+    if ESCUDO_PATH:
+        st.image(str(ESCUDO_PATH), width=70)
+with col_titulo:
+    st.title("Sistema de identificación y comparación de jugadores")
 st.caption("UD Las Palmas · Temporada 26/27")
 
 # --- Carga de datos --------------------------------------------------------
 df = load_players()
-
-try:
-    df_pca, pca_model = compute_pca_profile(df)
-except ValueError as e:
-    st.error(str(e))
-    st.stop()
 
 # --- Sidebar: filtros de búsqueda ------------------------------------------
 st.sidebar.header("Filtros de búsqueda")
@@ -51,6 +60,15 @@ filtered = filter_players(
 )
 
 st.sidebar.markdown(f"**{len(filtered)}** jugadores tras el filtro")
+
+with st.sidebar.expander("Diagnóstico de carga de datos"):
+    st.caption(
+        "Cada fichero encontrado en data/scout, data/laspalmasb, data/udlaspalmas "
+        "y data/seleccion, con el motivo por el que se cargó o se descartó. "
+        "Si una liga (ej. '1rfef') no aparece en el filtro de arriba, revisa "
+        "aquí su fila: seguramente está DESCARTADO por no tener columna 'Player'."
+    )
+    st.dataframe(get_load_diagnostics(), use_container_width=True, hide_index=True)
 
 # --- Selección de jugador ---------------------------------------------------
 player_options = sorted(filtered["player_name"].unique().tolist())
@@ -80,9 +98,24 @@ with col_info:
 
 with col_radar:
     st.markdown("**Perfil de estilo**")
+    # El radar solo debe poder compararse contra el PRIMER EQUIPO de la UD Las
+    # Palmas, sin importar los filtros de liga/familia/origen del sidebar
+    # (esos filtros son para elegir el jugador a analizar, no el rival de
+    # comparación). Por eso se saca de `df` completo, filtrando por
+    # source == "primer_equipo", en vez de `player_options`.
+    primer_equipo_options = sorted(
+        df[
+            (df["source"] == "primer_equipo") & (df["player_name"] != selected_player)
+        ]["player_name"].unique().tolist()
+    )
+    if not primer_equipo_options:
+        st.caption(
+            "No hay jugadores de 'primer_equipo' cargados (revisa el "
+            "Diagnóstico de carga de datos si esperabas verlos)."
+        )
     compare_target = st.selectbox(
-        "Comparar contra (opcional)",
-        ["Ninguno"] + [p for p in player_options if p != selected_player],
+        "Comparar contra (opcional, solo primer equipo UD Las Palmas)",
+        ["Ninguno"] + primer_equipo_options,
     )
     compare_to = None if compare_target == "Ninguno" else compare_target
     fig = style_radar_chart(df, selected_player, compare_to=compare_to)
@@ -106,7 +139,7 @@ with tab_similares:
     top_n = st.slider("Número de candidatos a mostrar", 5, 30, 10, key="topn_similares")
 
     similar_df = compute_similarity_scores(
-        df_pca, selected_player, same_position_family=same_family, top_n=top_n
+        df, selected_player, same_position_family=same_family, top_n=top_n
     )
 
     if similar_df.empty:

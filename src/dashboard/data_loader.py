@@ -45,6 +45,21 @@ REQUIRED_COLUMNS = [
     "Minutes played",
 ]
 
+# Algunas ligas (ej. 1RFEF) se han exportado/traducido con nombres en español
+# en vez de los nombres en inglés por defecto de Wyscout. Se homogeneizan
+# aquí, igual que DICCIONARIO_COLUMNAS en los notebooks, para que ningún
+# fichero se descarte en silencio solo por venir en otro idioma.
+COLUMN_ALIASES = {
+    "Jugador": "Player",
+    "Equipo": "Team",
+    "Posicion": "Position", "Posición": "Position", "Posición específica": "Position",
+    "Edad": "Age",
+    "Valor de mercado": "Market value", "Valor_MEur": "Market value",
+    "Vencimiento contrato": "Contract expires", "Fin_Contrato": "Contract expires",
+    "Minutos jugados": "Minutes played", "Minutos": "Minutes played",
+    "Pie": "Foot",
+}
+
 # Subconjunto de las 115 columnas usado para el PCA de estilo jugador-vs-jugador.
 # Ajusta/amplía libremente; están agrupadas por bloque para que sea fácil
 # quitar o añadir por fase de juego.
@@ -105,6 +120,19 @@ POSITION_FAMILY_MAP = {
     "LW": "Extremo", "RW": "Extremo", "LWF": "Extremo", "RWF": "Extremo",
     "CF": "Delantero", "SS": "Delantero",
 }
+
+
+def _normalize_foot(pie) -> str:
+    """Unifica la lateralidad sin importar si viene en inglés o español
+    (mismo criterio que normalizar_pie en los notebooks)."""
+    pie_str = str(pie).lower().strip()
+    if pie_str in ("right", "derecho"):
+        return "diestro"
+    if pie_str in ("left", "izquierdo"):
+        return "zurdo"
+    if pie_str in ("both", "ambidiestro"):
+        return "ambidiestro"
+    return "desconocido"
 
 
 def _map_position_family(position_code: str) -> str:
@@ -207,6 +235,9 @@ def _load_player_files(folder: Path, source_label: str) -> pd.DataFrame:
             st.warning(f"No se pudo leer {f}: {e}")
             continue
 
+        raw = raw.rename(columns={k: v for k, v in COLUMN_ALIASES.items() if k in raw.columns})
+        raw = raw.loc[:, ~raw.columns.duplicated()]  # ej. si un fichero trae 'Pie' Y 'Foot' a la vez
+
         if not _is_player_file(raw):
             continue  # es Team_Stats u otro fichero no reconocido: se ignora aquí
 
@@ -225,6 +256,82 @@ def _load_player_files(folder: Path, source_label: str) -> pd.DataFrame:
     if not frames:
         return pd.DataFrame()
     return pd.concat(frames, ignore_index=True)
+
+
+def _diagnose_source_files(folder: Path, source_label: str) -> list[dict]:
+    """
+    Igual que _load_player_files pero sin filtrar nada: recorre cada
+    fichero encontrado en `folder` y explica qué se hizo con él (cargado
+    como jugadores, cargado como Team_Stats, o descartado y por qué).
+    Pensado para depurar casos como "1rfef no aparece": aquí verás el
+    fichero, sus columnas reales, y el motivo exacto del descarte.
+    """
+    registros = []
+    for f in _iter_data_files(folder):
+        rel = f.relative_to(folder)
+        try:
+            raw = _read_any(f)
+        except Exception as e:
+            registros.append({
+                "source": source_label, "archivo": str(rel),
+                "estado": "ERROR AL LEER", "detalle": str(e), "columnas": "",
+            })
+            continue
+
+        columnas_originales = list(raw.columns)
+        raw = raw.rename(columns={k: v for k, v in COLUMN_ALIASES.items() if k in raw.columns})
+        raw = raw.loc[:, ~raw.columns.duplicated()]
+        alias_aplicado = list(raw.columns) != columnas_originales
+
+        columnas_preview = ", ".join(str(c) for c in raw.columns[:8]) + (
+            " ..." if len(raw.columns) > 8 else ""
+        )
+
+        if _is_player_file(raw):
+            rel_parts = rel.parts[:-1]
+            liga = "/".join(rel_parts) if rel_parts else source_label
+            nota_alias = " (columnas traducidas vía COLUMN_ALIASES)" if alias_aplicado else ""
+            registros.append({
+                "source": source_label, "archivo": str(rel),
+                "estado": "OK - cargado como jugadores",
+                "detalle": f"liga='{liga}', {len(raw)} filas{nota_alias}",
+                "columnas": columnas_preview,
+            })
+        elif _is_team_stats_file(raw):
+            registros.append({
+                "source": source_label, "archivo": str(rel),
+                "estado": "OK - cargado como Team_Stats (no es tabla de jugadores)",
+                "detalle": f"{len(raw)} filas", "columnas": columnas_preview,
+            })
+        else:
+            registros.append({
+                "source": source_label, "archivo": str(rel),
+                "estado": "DESCARTADO",
+                "detalle": "No tiene columna 'Player' (jugadores) ni 'Match'+'PPDA' (Team_Stats). "
+                            "Revisa si el nombre de columna es distinto (ej. 'Jugador', espacios, "
+                            "encoding) o si hay filas de cabecera antes de la fila real de títulos.",
+                "columnas": columnas_preview,
+            })
+    return registros
+
+
+@st.cache_data
+def get_load_diagnostics() -> pd.DataFrame:
+    """
+    Diagnóstico completo de todas las fuentes (DATA_SOURCES): un registro
+    por cada fichero encontrado, cargado o no, con el motivo. Úsalo en un
+    expander del sidebar para ver de un vistazo por qué falta una liga.
+    """
+    registros = []
+    for label, folder in DATA_SOURCES.items():
+        if not folder.exists():
+            registros.append({
+                "source": label, "archivo": "(carpeta no existe)",
+                "estado": "CARPETA NO ENCONTRADA", "detalle": str(folder), "columnas": "",
+            })
+            continue
+        registros.extend(_diagnose_source_files(folder, label))
+    return pd.DataFrame(registros)
 
 
 @st.cache_data
@@ -268,8 +375,16 @@ def load_players() -> pd.DataFrame:
         "Market value": "market_value",
         "Contract expires": "contract_expiry",
         "Position": "position",
+        "Foot": "foot",
     }
     df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
+    df = df.loc[:, ~df.columns.duplicated()]  # protección extra tras el rename final
+
+    # Normalizar el pie (mismo criterio que normalizar_pie en los notebooks):
+    # unifica 'right'/'derecho' -> 'diestro', etc. Si la columna no existe en
+    # ningún fichero, el motor de similitud simplemente omite ese filtro.
+    if "foot" in df.columns:
+        df["foot"] = df["foot"].apply(_normalize_foot)
 
     # 'league' ya viene rellenada por _load_player_files a partir de la
     # carpeta; esto es solo un colchón por si algún frame la trajera vacía.

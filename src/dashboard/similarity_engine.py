@@ -1,81 +1,131 @@
 """
-Motor de similitud entre jugadores (PCA + distancia euclidiana).
+Motor de similitud entre jugadores.
 
-Si ya tienes esta lógica construida en scouting/buscador_similitud.ipynb,
-lo ideal es extraer esas funciones a un .py e importarlas aquí en vez de
-duplicar la implementación. Esta versión es funcional standalone mientras
-tanto.
+Migrado desde buscador_similitud.ipynb / comparador_estilo_plantilla.ipynb:
+para cada familia de posición se usa un perfil de 5 métricas específicas
+(POSITION_STYLE_PROFILES), z-score (StandardScaler) + similitud coseno, con
+filtro opcional de pie dominante (con fallback si deja el grupo vacío).
+
+Antes esta función usaba PCA genérico sobre las 20 métricas de STYLE_METRICS
+para todas las posiciones a la vez, lo que mezclaba porteros con delanteros
+antes incluso de filtrar por posición. Se sustituye para que el dashboard use
+la misma metodología, ya validada, que el resto del TFM.
 """
 
 import numpy as np
 import pandas as pd
 import streamlit as st
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
 from scipy.spatial.distance import cdist
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.preprocessing import StandardScaler
 
 from data_loader import STYLE_METRICS, TEAM_TO_PLAYER_METRIC_MAP
 
-
-@st.cache_data
-def compute_pca_profile(df: pd.DataFrame, n_components: int = 5):
-    metrics_present = [m for m in STYLE_METRICS if m in df.columns]
-    if len(metrics_present) < 2:
-        raise ValueError(
-            "No hay suficientes métricas de estilo presentes en los datos. "
-            "Revisa STYLE_METRICS en data_loader.py."
-        )
-
-    X = df[metrics_present].fillna(df[metrics_present].median())
-    X_scaled = StandardScaler().fit_transform(X)
-
-    pca = PCA(n_components=min(n_components, len(metrics_present)))
-    components = pca.fit_transform(X_scaled)
-
-    out = df.copy()
-    for i in range(components.shape[1]):
-        out[f"pc_{i+1}"] = components[:, i]
-
-    return out, pca
+# Perfil de 5 métricas + pesos por cada position_family (mismas familias que
+# devuelve POSITION_FAMILY_MAP en data_loader.py). Es el equivalente en
+# columnas en inglés de PERFILES_OBJETIVO en los notebooks; la única
+# diferencia es que aquí "Mediocentro" y "Mediocentro defensivo" van
+# separados porque data_loader.py ya distingue esas dos familias.
+POSITION_STYLE_PROFILES = {
+    "Portero": {
+        "metricas": ["Short / medium passes per 90", "Forward passes per 90",
+                     "Long passes per 90", "Conceded goals per 90", "Prevented goals per 90"],
+        "pesos": [0.15, 0.15, 0.15, 0.25, 0.30],
+    },
+    "Central": {
+        "metricas": ["Defensive duels per 90", "Interceptions per 90", "Aerial duels per 90",
+                     "Passes to final third per 90", "Progressive runs per 90"],
+        "pesos": [0.30, 0.25, 0.20, 0.15, 0.10],
+    },
+    "Lateral": {
+        "metricas": ["Progressive runs per 90", "Crosses per 90", "Passes to final third per 90",
+                     "Defensive duels per 90", "Interceptions per 90"],
+        "pesos": [0.25, 0.20, 0.25, 0.15, 0.15],
+    },
+    "Mediocentro defensivo": {
+        "metricas": ["Defensive duels per 90", "Interceptions per 90", "Passes to final third per 90",
+                     "Forward passes per 90", "Progressive runs per 90"],
+        "pesos": [0.30, 0.25, 0.20, 0.15, 0.10],
+    },
+    "Mediocentro": {
+        "metricas": ["Passes to final third per 90", "Forward passes per 90", "Defensive duels per 90",
+                     "Interceptions per 90", "Progressive runs per 90"],
+        "pesos": [0.30, 0.20, 0.25, 0.15, 0.10],
+    },
+    "Mediapunta": {
+        "metricas": ["Passes to final third per 90", "Key passes per 90", "Progressive runs per 90",
+                     "Dribbles per 90", "xA per 90"],
+        "pesos": [0.30, 0.25, 0.20, 0.15, 0.10],
+    },
+    "Extremo": {
+        "metricas": ["Dribbles per 90", "Progressive runs per 90", "Crosses per 90",
+                     "xA per 90", "Touches in box per 90"],
+        "pesos": [0.30, 0.25, 0.15, 0.15, 0.15],
+    },
+    "Delantero": {
+        "metricas": ["Goals per 90", "xG per 90", "Touches in box per 90",
+                     "Shots per 90", "Offensive duels per 90"],
+        "pesos": [0.35, 0.25, 0.20, 0.10, 0.10],
+    },
+}
 
 
 def compute_similarity_scores(
-    df_with_pca: pd.DataFrame,
+    df: pd.DataFrame,
     target_player: str,
     same_position_family: bool = True,
     top_n: int = 15,
 ) -> pd.DataFrame:
     """
-    Distancia euclidiana en el espacio de componentes principales.
-    same_position_family=True aplica la corrección por familia de posición
-    que identificaste en tu TFM (en vez de posición exacta).
+    Similitud jugador-vs-jugador: z-score + coseno sobre el perfil de
+    métricas de la familia de posición del jugador objetivo (en vez de PCA
+    genérico). same_position_family=True aplica la corrección de filtrado
+    por familia (en vez de código exacto) documentada en el TFM.
     """
-    pc_cols = [c for c in df_with_pca.columns if c.startswith("pc_")]
-
-    target_row = df_with_pca[df_with_pca["player_name"] == target_player]
+    target_row = df[df["player_name"] == target_player]
     if target_row.empty:
         raise ValueError(f"Jugador objetivo '{target_player}' no encontrado.")
+    target_row = target_row.iloc[0]
 
-    candidates = df_with_pca[df_with_pca["player_name"] != target_player].copy()
+    target_family = target_row.get("position_family")
+    perfil = POSITION_STYLE_PROFILES.get(target_family)
+    metricas = perfil["metricas"] if perfil else STYLE_METRICS
+    metricas = [m for m in metricas if m in df.columns]
+    if len(metricas) < 2:
+        raise ValueError(
+            f"No hay suficientes métricas definidas para la familia '{target_family}'. "
+            "Revisa POSITION_STYLE_PROFILES en similarity_engine.py."
+        )
 
-    if same_position_family and "position_family" in df_with_pca.columns:
-        target_family = target_row.iloc[0]["position_family"]
+    candidates = df[df["player_name"] != target_player].copy()
+    if same_position_family and "position_family" in df.columns:
         candidates = candidates[candidates["position_family"] == target_family]
 
     if candidates.empty:
         return candidates
 
-    target_vector = target_row[pc_cols].values
-    candidate_vectors = candidates[pc_cols].values
+    # Filtro de pie con fallback: si no hay candidatos con el mismo pie
+    # dentro de esta familia de posición, se mantiene el grupo completo en
+    # vez de devolver un resultado vacío (mismo criterio que en el notebook).
+    if "foot" in df.columns and target_row.get("foot") not in (None, "desconocido"):
+        mismo_pie = candidates[candidates["foot"] == target_row["foot"]]
+        if not mismo_pie.empty:
+            candidates = mismo_pie
+        else:
+            st.caption(
+                f"Aviso: no hay candidatos con pie '{target_row['foot']}' en esta "
+                "familia de posición; se amplía la búsqueda a todos los pies."
+            )
 
-    distances = cdist(target_vector, candidate_vectors, metric="euclidean")[0]
-    candidates["distance"] = distances
+    universo = pd.concat([target_row.to_frame().T, candidates], ignore_index=True)
+    X = universo[metricas].apply(pd.to_numeric, errors="coerce")
+    X = X.fillna(X.median())
 
-    max_dist = candidates["distance"].max() or 1
-    candidates["similarity_score"] = (
-        100 * (1 - candidates["distance"] / max_dist)
-    ).round(1)
+    X_scaled = StandardScaler().fit_transform(X)
+    similitudes = cosine_similarity(X_scaled[[0]], X_scaled)[0]
 
+    candidates = candidates.reset_index(drop=True)
+    candidates["similarity_score"] = (similitudes[1:] * 100).round(1)
     candidates = candidates.sort_values("similarity_score", ascending=False)
 
     display_cols = [
