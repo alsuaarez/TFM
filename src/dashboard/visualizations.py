@@ -8,14 +8,25 @@ import plotly.graph_objects as go
 from data_loader import STYLE_METRICS
 
 
-def _normalize_metrics(df: pd.DataFrame, metrics: list[str]) -> pd.DataFrame:
-    out = df.copy()
+def _normalize_row(df_reference: pd.DataFrame, row_raw: pd.Series, metrics: list[str]) -> dict:
+    """
+    Normaliza un jugador (fila cruda) a 0-100 por métrica, usando min/max de
+    `df_reference` como escala. Se pasa la fila cruda en vez de pre-normalizar
+    todo el dataframe para poder usar la MISMA escala de referencia tanto en
+    el jugador buscado como en el de comparación, aunque este último no esté
+    dentro de `df_reference` (ej. compara contra otra familia de posición).
+    """
+    out = {}
     for m in metrics:
-        min_v, max_v = df[m].min(), df[m].max()
-        if max_v - min_v == 0:
+        min_v, max_v = df_reference[m].min(), df_reference[m].max()
+        valor = row_raw.get(m)
+        if pd.isna(valor):
+            out[m] = 0
+        elif max_v - min_v == 0:
             out[m] = 50
         else:
-            out[m] = 100 * (df[m] - min_v) / (max_v - min_v)
+            normalizado = 100 * (valor - min_v) / (max_v - min_v)
+            out[m] = min(max(normalizado, 0), 100)  # clip: el comparado puede caer fuera del rango de referencia
     return out
 
 
@@ -26,15 +37,32 @@ def style_radar_chart(
     metrics: list[str] | None = None,
 ) -> go.Figure:
     metrics = metrics or [m for m in STYLE_METRICS if m in df_full.columns]
-    df_norm = _normalize_metrics(df_full, metrics)
+
+    target_rows = df_full[df_full["player_name"] == player_name]
+    if target_rows.empty:
+        return go.Figure()
+    target_raw = target_rows.iloc[0]
+
+    # Normalizar dentro de la misma familia de posición del jugador buscado,
+    # no contra TODO el universo: mezclar porteros con delanteros aplastaba
+    # casi todas las métricas cerca de 0 salvo 1-2 ejes (el radar "roto" que
+    # se veía). Si el grupo es demasiado pequeño para ser representativo, se
+    # usa el universo completo como respaldo.
+    familia = target_raw.get("position_family") if "position_family" in df_full.columns else None
+    universo_ref = df_full
+    if familia:
+        candidato_universo = df_full[df_full["position_family"] == familia]
+        if len(candidato_universo) >= 5:
+            universo_ref = candidato_universo
 
     fig = go.Figure()
 
     def add_trace(name: str, color: str):
-        row = df_norm[df_norm["player_name"] == name]
-        if row.empty:
+        rows = df_full[df_full["player_name"] == name]
+        if rows.empty:
             return
-        values = row[metrics].values.flatten().tolist()
+        valores_norm = _normalize_row(universo_ref, rows.iloc[0], metrics)
+        values = [valores_norm[m] for m in metrics]
         values.append(values[0])
         fig.add_trace(
             go.Scatterpolar(

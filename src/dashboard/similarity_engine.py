@@ -117,9 +117,46 @@ def compute_similarity_scores(
                 "familia de posición; se amplía la búsqueda a todos los pies."
             )
 
-    universo = pd.concat([target_row.to_frame().T, candidates], ignore_index=True)
-    X = universo[metricas].apply(pd.to_numeric, errors="coerce")
-    X = X.fillna(X.median())
+    # Se rellenan los NaN de cada lado ANTES de concatenar (no después):
+    # concatenar con columnas todo-NaN dispara un FutureWarning de pandas
+    # y además distorsiona el StandardScaler si se hiciera al revés.
+    metricas_candidatos = candidates[metricas].apply(pd.to_numeric, errors="coerce")
+    medianas = metricas_candidatos.median()
+    metricas_candidatos = metricas_candidatos.fillna(medianas).fillna(0)  # fillna(0): caso límite
+    # en el que TODOS los candidatos de la familia tienen NaN en una métrica
+    # (mediana también NaN); sin este último fillna, cosine_similarity falla.
+
+    valor_target = pd.to_numeric(target_row[metricas], errors="coerce").fillna(medianas).fillna(0)
+
+    # Descartar métricas sin variación real dentro de este grupo de
+    # candidatos (columna que no existe con ese nombre exacto en tus datos
+    # reales, o que queda a 0 para casi todos tras el fillna). Con muy pocas
+    # métricas con varianza de verdad, la similitud coseno degenera y da
+    # ~100% a todo el mundo — este filtro es lo que evita ese caso.
+    desviaciones = metricas_candidatos.std()
+    metricas_validas = [m for m in metricas if desviaciones.get(m, 0) > 1e-9]
+    metricas_descartadas = [m for m in metricas if m not in metricas_validas]
+
+    if metricas_descartadas:
+        st.caption(
+            f"Aviso: {len(metricas_descartadas)} métrica(s) del perfil de "
+            f"'{target_family}' sin variación real en tus datos (revisa si el "
+            f"nombre de columna coincide exactamente con tu export de Wyscout): "
+            f"{metricas_descartadas}. Cálculo hecho solo con: {metricas_validas}."
+        )
+
+    if len(metricas_validas) < 2:
+        raise ValueError(
+            f"Solo quedan {len(metricas_validas)} métrica(s) con variación real "
+            f"para la familia '{target_family}' — no es suficiente para calcular "
+            f"una similitud fiable. Revisa los nombres de columna en "
+            f"POSITION_STYLE_PROFILES contra tu export real de Wyscout."
+        )
+
+    metricas_candidatos = metricas_candidatos[metricas_validas]
+    valor_target = valor_target[metricas_validas]
+
+    X = pd.concat([valor_target.to_frame().T, metricas_candidatos], ignore_index=True)
 
     X_scaled = StandardScaler().fit_transform(X)
     similitudes = cosine_similarity(X_scaled[[0]], X_scaled)[0]

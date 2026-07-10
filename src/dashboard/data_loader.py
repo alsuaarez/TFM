@@ -49,6 +49,13 @@ REQUIRED_COLUMNS = [
 # en vez de los nombres en inglés por defecto de Wyscout. Se homogeneizan
 # aquí, igual que DICCIONARIO_COLUMNAS en los notebooks, para que ningún
 # fichero se descarte en silencio solo por venir en otro idioma.
+#
+# IMPORTANTE: esto cubre las columnas de identidad (Player/Team/...) Y las
+# de métricas (Defensive duels per 90, xA per 90...), que es justo lo que
+# faltaba y causaba que varias métricas de POSITION_STYLE_PROFILES
+# aparecieran como "sin variación real" (en realidad no faltaban, estaban
+# en español y no se reconocían). Si detectas más columnas en español que no
+# estén aquí, dime el nombre EXACTO tal como sale en tu Excel y lo añado.
 COLUMN_ALIASES = {
     "Jugador": "Player",
     "Equipo": "Team",
@@ -58,6 +65,27 @@ COLUMN_ALIASES = {
     "Vencimiento contrato": "Contract expires", "Fin_Contrato": "Contract expires",
     "Minutos jugados": "Minutes played", "Minutos": "Minutes played",
     "Pie": "Foot",
+
+    # Métricas (mismos alias que DICCIONARIO_COLUMNAS en los notebooks)
+    "Duelos_Defensivos_P90": "Defensive duels per 90", "Duelos defensivos/90": "Defensive duels per 90",
+    "Interceptaciones_P90": "Interceptions per 90", "Interceptaciones/90": "Interceptions per 90",
+    "Duelos_Aereos_P90": "Aerial duels per 90", "Duelos aéreos en los 90": "Aerial duels per 90",
+    "Pases_Ultimo_Tercio_P90": "Passes to final third per 90", "Pases en el último tercio/90": "Passes to final third per 90",
+    "Conducciones_Progresivas_P90": "Progressive runs per 90", "Carreras en progresión/90": "Progressive runs per 90",
+    "Pases_Clave_P90": "Key passes per 90", "Jugadas claves/90": "Key passes per 90",
+    "Regates_P90": "Dribbles per 90", "Regates/90": "Dribbles per 90",
+    "Centros_P90": "Crosses per 90", "Centros/90": "Crosses per 90",
+    "xA_P90": "xA per 90", "xA/90": "xA per 90",
+    "Goles_P90": "Goals per 90", "Goles/90": "Goals per 90",
+    "xG_P90": "xG per 90", "xG/90": "xG per 90",
+    "Toques_Area_P90": "Touches in box per 90", "Toques en el área de penalti/90": "Touches in box per 90",
+    "Remates_P90": "Shots per 90", "Remates/90": "Shots per 90",
+    "Duelos_Ofensivos_P90": "Offensive duels per 90", "Duelos atacantes/90": "Offensive duels per 90",
+    "Pases_Corto_Medio_P90": "Short / medium passes per 90",
+    "Pases_Adelante_P90": "Forward passes per 90", "Pases hacia adelante/90": "Forward passes per 90",
+    "Pases_Largos_P90": "Long passes per 90", "Pases largos/90": "Long passes per 90",
+    "Goles_Encajados_P90": "Conceded goals per 90", "Goles encajados/90": "Conceded goals per 90",
+    "Goles_Evitados_P90": "Prevented goals per 90", "Goles evitados/90": "Prevented goals per 90",
 }
 
 # Subconjunto de las 115 columnas usado para el PCA de estilo jugador-vs-jugador.
@@ -106,19 +134,37 @@ TEAM_TO_PLAYER_METRIC_MAP = {
 
 TEAM_CONTEXT_ONLY_METRICS = ["Possession, %", "PPDA"]
 
-# Mapeo de códigos de posición de Wyscout a familias de posición.
-# Esta es la corrección que documentas en tu TFM: filtrar por familia
-# (p. ej. cualquier central) en vez de por código exacto (p. ej. "LCB"),
-# que dejaba jugadores sin candidatos comparables.
+# Mapeo de posición -> familia. Distintas fuentes usan códigos Wyscout en
+# inglés (CB, LCB...), abreviaturas en español (DFC, MCO...) o el nombre
+# completo en español (Defensa central, Mediocentro...). Se listan aquí como
+# sinónimos y se aplanan a un único diccionario alias->familia, para que
+# "Central", "Defensa central", "DFC" y "CB" acaben todos en la misma
+# familia "Central" en vez de aparecer como 4 categorías distintas.
+#
+# Nota sobre "DC": en tus datos significa "Delantero Centro", no "Defensa
+# Central" (así lo confirmaste), por eso va en Delantero y no en Central.
+POSITION_FAMILY_SYNONYMS = {
+    "Portero": ["GK", "PT", "PORTERO"],
+    "Lateral": ["LB", "RB", "LWB", "RWB", "LD", "RD", "LI", "RI",
+                "LATERAL", "LATERAL DERECHO", "LATERAL IZQUIERDO"],
+    "Central": ["CB", "LCB", "RCB", "LCB3", "RCB3", "DFC",
+                "CENTRAL", "DEFENSA CENTRAL"],
+    "Mediocentro defensivo": ["DMF", "LDMF", "RDMF", "MCD", "PIVOTE",
+                              "MEDIOCENTRO DEFENSIVO"],
+    "Mediocentro": ["CMF", "LCMF", "RCMF", "LCMF3", "RCMF3", "MC",
+                     "CENTROCAMPISTA", "MEDIOCENTRO"],
+    "Mediapunta": ["AMF", "LAMF", "RAMF", "MCO", "MEDIAPUNTA",
+                    "MEDIOCENTRO OFENSIVO"],
+    "Extremo": ["LW", "RW", "LWF", "RWF", "ED", "EI",
+                "EXTREMO", "EXTREMO DERECHO", "EXTREMO IZQUIERDO"],
+    "Delantero": ["CF", "SS", "DC", "DELANTERO", "DELANTERO CENTRO", "PUNTA"],
+}
+
+# Aplanado alias (en mayúsculas) -> familia canónica, para lookup directo.
 POSITION_FAMILY_MAP = {
-    "GK": "Portero",
-    "CB": "Central", "LCB": "Central", "RCB": "Central", "LCB3": "Central", "RCB3": "Central",
-    "LB": "Lateral", "RB": "Lateral", "LWB": "Lateral", "RWB": "Lateral",
-    "DMF": "Mediocentro defensivo", "LDMF": "Mediocentro defensivo", "RDMF": "Mediocentro defensivo",
-    "CMF": "Mediocentro", "LCMF": "Mediocentro", "RCMF": "Mediocentro", "LCMF3": "Mediocentro", "RCMF3": "Mediocentro",
-    "AMF": "Mediapunta", "LAMF": "Mediapunta", "RAMF": "Mediapunta",
-    "LW": "Extremo", "RW": "Extremo", "LWF": "Extremo", "RWF": "Extremo",
-    "CF": "Delantero", "SS": "Delantero",
+    alias.upper(): familia
+    for familia, alias_list in POSITION_FAMILY_SYNONYMS.items()
+    for alias in alias_list
 }
 
 
@@ -136,13 +182,27 @@ def _normalize_foot(pie) -> str:
 
 
 def _map_position_family(position_code: str) -> str:
-    """Toma el primer código de posición (Wyscout separa varios con coma) y
-    lo mapea a su familia. Si el código no está en el mapa, lo devuelve tal
-    cual en vez de fallar, para que aparezcan datos nuevos sin romper la app."""
+    """Toma el primer código/nombre de posición (puede venir separado por
+    comas si hay varias) y lo mapea a su familia canónica, sin importar si
+    viene como código Wyscout (CB), abreviatura española (DFC) o nombre
+    completo (Defensa central). Si no encuentra coincidencia exacta, prueba
+    una coincidencia parcial (por si viene con matices, ej. "Central
+    izquierdo"); si tampoco encaja, devuelve el texto tal cual en vez de
+    fallar, para que datos nuevos no rompan la app."""
     if not isinstance(position_code, str) or not position_code.strip():
         return "Sin especificar"
-    first_code = position_code.split(",")[0].strip()
-    return POSITION_FAMILY_MAP.get(first_code, first_code)
+    first_code = position_code.split(",")[0].strip().upper()
+
+    if first_code in POSITION_FAMILY_MAP:
+        return POSITION_FAMILY_MAP[first_code]
+
+    # Fallback por coincidencia parcial, probando los alias más largos
+    # primero para evitar falsos positivos con abreviaturas cortas.
+    for alias in sorted(POSITION_FAMILY_MAP, key=len, reverse=True):
+        if alias in first_code:
+            return POSITION_FAMILY_MAP[alias]
+
+    return first_code.title()
 
 
 # Tus ficheros de data/scout ya vienen pre-divididos por posición
@@ -352,6 +412,11 @@ def load_players() -> pd.DataFrame:
         st.stop()
 
     df = pd.concat(frames, ignore_index=True)
+    # .copy() desfragmenta el DataFrame: sin esto, las columnas nuevas que
+    # se añaden a partir de aquí (position_family, foot...) sobre un
+    # DataFrame ya "cosido" de varios concat generan el PerformanceWarning
+    # de pandas por fragmentación interna.
+    df = df.copy()
 
     # position_family: prioridad al nombre de fichero (scout ya viene
     # pre-clasificado por carpeta/fichero de posición); si no aplica, se
@@ -391,10 +456,72 @@ def load_players() -> pd.DataFrame:
     if "league" not in df.columns:
         df["league"] = "Sin especificar"
 
+    # Limpiar espacios sobrantes en nombre/equipo ANTES de deduplicar y de
+    # cualquier búsqueda por nombre: "Mika Marmol " y "Mika Marmol" (o con
+    # mayúsculas distintas en el equipo) se tratarían como jugadores
+    # distintos y ni se deduplican ni se encuentran bien en las búsquedas.
+    if "player_name" in df.columns:
+        df["player_name"] = df["player_name"].astype(str).str.strip()
+    if "team" in df.columns:
+        df["team"] = df["team"].astype(str).str.strip()
+
     expected_after_rename = [rename_map.get(c, c) for c in REQUIRED_COLUMNS]
     missing = [c for c in expected_after_rename if c not in df.columns]
     if missing:
         st.warning(f"Columnas esperadas no encontradas en tus datos: {missing}")
+
+    # Deduplicar: el mismo jugador puede aparecer en más de un fichero si tu
+    # carpeta data/scout está organizada a la vez por posición (CENTRALES.xlsx)
+    # y por liga (1rfef.xlsx) y ambas cubren a los mismos jugadores. Se
+    # considera duplicado el mismo jugador+equipo dentro del mismo origen
+    # (mercado/cantera/primer_equipo/seleccion); si aparece también en otro
+    # origen distinto (ej. filial promocionado al primer equipo) se conserva,
+    # porque ahí sí son dos situaciones reales distintas.
+    clave_duplicado = [c for c in ["player_name", "team", "source"] if c in df.columns]
+    if clave_duplicado:
+        antes = len(df)
+        df = df.drop_duplicates(subset=clave_duplicado, keep="first").reset_index(drop=True)
+        eliminados = antes - len(df)
+        if eliminados:
+            st.info(
+                f"Se han detectado y eliminado {eliminados} filas duplicadas "
+                f"(mismo jugador + equipo + origen repetido en varios ficheros). "
+                f"Total tras deduplicar: {len(df)} jugadores."
+            )
+
+    # Segunda pasada, SOLO para 'primer_equipo': el mismo jugador puede
+    # aparecer con el nombre abreviado ("E. Loioidice") en un fichero y
+    # completo ("Enzo Loioidice") en otro — no son duplicados exactos, así
+    # que la deduplicación de arriba no los pilla. Como la plantilla del
+    # primer equipo es pequeña y conocida (~25 jugadores), es seguro agrupar
+    # por apellido + equipo aquí; en 'mercado' NO se hace esto porque con
+    # miles de jugadores sí podría fusionar por error a dos personas
+    # distintas con el mismo apellido.
+    if "source" in df.columns and "player_name" in df.columns:
+        es_primer_equipo = df["source"] == "primer_equipo"
+        if es_primer_equipo.any():
+            df_pe = df[es_primer_equipo].copy()
+            df_resto = df[~es_primer_equipo]
+
+            df_pe["_apellido"] = df_pe["player_name"].str.split().str[-1].str.lower()
+            df_pe["_longitud_nombre"] = df_pe["player_name"].str.len()
+            # keep="first" tras ordenar por longitud descendente -> se
+            # conserva el nombre completo ("Enzo Loioidice") en vez del
+            # abreviado ("E. Loioidice").
+            antes_pe = len(df_pe)
+            df_pe = df_pe.sort_values("_longitud_nombre", ascending=False)
+            clave_pe = [c for c in ["team", "_apellido"] if c in df_pe.columns]
+            df_pe = df_pe.drop_duplicates(subset=clave_pe, keep="first")
+            eliminados_pe = antes_pe - len(df_pe)
+            df_pe = df_pe.drop(columns=["_apellido", "_longitud_nombre"])
+
+            df = pd.concat([df_resto, df_pe], ignore_index=True)
+            if eliminados_pe:
+                st.info(
+                    f"Primer equipo: {eliminados_pe} jugador(es) aparecían con "
+                    "nombre abreviado y completo a la vez; se ha conservado la "
+                    "versión con el nombre completo."
+                )
 
     return df
 
