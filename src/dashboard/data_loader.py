@@ -1,5 +1,5 @@
 """
-Carga de datos para el dashboard, apoyada en tu estructura real de /data.
+Carga de datos para el dashboard.
 
 Reparto asumido de carpetas:
     data/scout        -> base de mercado externo (candidatos a fichaje)
@@ -8,10 +8,6 @@ Reparto asumido de carpetas:
                            distintos que NO deben mezclarse:
                              - "Individual_*.xlsx"  -> stats por jugador
                              - "Team_Stats_*.xlsx"   -> stats por partido
-                                (usado solo para construir el perfil de
-                                estilo objetivo del equipo, no es una
-                                tabla de jugadores)
-    data/seleccion     -> jugadores de selecciones (opcional)
 
 Cada carpeta puede contener uno o varios ficheros de jugadores; se
 concatenan todos los que empiecen por "Individual". Los ficheros
@@ -34,7 +30,7 @@ DATA_SOURCES = {
     "seleccion": DATA_DIR / "seleccion",
 }
 
-# --- Columnas reales del export "Individual" de Wyscout --------------------
+# Columnas reales del export "Individual" de Wyscout
 REQUIRED_COLUMNS = [
     "Player",
     "Team",
@@ -48,14 +44,11 @@ REQUIRED_COLUMNS = [
 # Algunas ligas (ej. 1RFEF) se han exportado/traducido con nombres en español
 # en vez de los nombres en inglés por defecto de Wyscout. Se homogeneizan
 # aquí, igual que DICCIONARIO_COLUMNAS en los notebooks, para que ningún
-# fichero se descarte en silencio solo por venir en otro idioma.
+# fichero se descarte.
 #
 # IMPORTANTE: esto cubre las columnas de identidad (Player/Team/...) Y las
 # de métricas (Defensive duels per 90, xA per 90...), que es justo lo que
-# faltaba y causaba que varias métricas de POSITION_STYLE_PROFILES
-# aparecieran como "sin variación real" (en realidad no faltaban, estaban
-# en español y no se reconocían). Si detectas más columnas en español que no
-# estén aquí, dime el nombre EXACTO tal como sale en tu Excel y lo añado.
+# faltaba y causaba que varias métricas aparecieran como "sin variación real". 
 COLUMN_ALIASES = {
     "Jugador": "Player",
     "Equipo": "Team",
@@ -66,7 +59,7 @@ COLUMN_ALIASES = {
     "Minutos jugados": "Minutes played", "Minutos": "Minutes played",
     "Pie": "Foot",
 
-    # Métricas (mismos alias que DICCIONARIO_COLUMNAS en los notebooks)
+    # Métricas
     "Duelos_Defensivos_P90": "Defensive duels per 90", "Duelos defensivos/90": "Defensive duels per 90",
     "Interceptaciones_P90": "Interceptions per 90", "Interceptaciones/90": "Interceptions per 90",
     "Duelos_Aereos_P90": "Aerial duels per 90", "Duelos aéreos en los 90": "Aerial duels per 90",
@@ -89,8 +82,6 @@ COLUMN_ALIASES = {
 }
 
 # Subconjunto de las 115 columnas usado para el PCA de estilo jugador-vs-jugador.
-# Ajusta/amplía libremente; están agrupadas por bloque para que sea fácil
-# quitar o añadir por fase de juego.
 STYLE_METRICS = [
     # Construcción / pase
     "Passes per 90",
@@ -118,7 +109,7 @@ STYLE_METRICS = [
     "Aerial duels won, %",
 ]
 
-# --- Mapeo de nombres de estilo de EQUIPO (Team_Stats) a su equivalente
+# Mapeo de nombres de estilo del equipo (Team_Stats) a su equivalente
 # de jugador (Individual). Usado por compute_team_fit_scores() en
 # similarity_engine.py. "Possession, %" y "PPDA" no tienen equivalente
 # individual limpio, así que se dejan solo para contexto, no para el
@@ -128,7 +119,7 @@ TEAM_TO_PLAYER_METRIC_MAP = {
     "Lateral passes accurate %": "Accurate lateral passes, %",
     "Passes to final third accurate %": "Accurate passes to final third, %",
     "Progressive passes accurate %": "Accurate progressive passes, %",
-    "Long pass %": "Accurate long passes, %",  # proxy aproximado, revisar
+    "Long pass %": "Accurate long passes, %",
     "Average pass length": "Average pass length, m",
 }
 
@@ -140,9 +131,6 @@ TEAM_CONTEXT_ONLY_METRICS = ["Possession, %", "PPDA"]
 # sinónimos y se aplanan a un único diccionario alias->familia, para que
 # "Central", "Defensa central", "DFC" y "CB" acaben todos en la misma
 # familia "Central" en vez de aparecer como 4 categorías distintas.
-#
-# Nota sobre "DC": en tus datos significa "Delantero Centro", no "Defensa
-# Central" (así lo confirmaste), por eso va en Delantero y no en Central.
 POSITION_FAMILY_SYNONYMS = {
     "Portero": ["GK", "PT", "PORTERO"],
     "Lateral": ["LB", "RB", "LWB", "RWB", "LD", "RD", "LI", "RI",
@@ -160,7 +148,7 @@ POSITION_FAMILY_SYNONYMS = {
     "Delantero": ["CF", "SS", "DC", "DELANTERO", "DELANTERO CENTRO", "PUNTA"],
 }
 
-# Aplanado alias (en mayúsculas) -> familia canónica, para lookup directo.
+# Aplanado alias
 POSITION_FAMILY_MAP = {
     alias.upper(): familia
     for familia, alias_list in POSITION_FAMILY_SYNONYMS.items()
@@ -169,8 +157,7 @@ POSITION_FAMILY_MAP = {
 
 
 def _normalize_foot(pie) -> str:
-    """Unifica la lateralidad sin importar si viene en inglés o español
-    (mismo criterio que normalizar_pie en los notebooks)."""
+    """Unifica la lateralidad sin importar si viene en inglés o español"""
     pie_str = str(pie).lower().strip()
     if pie_str in ("right", "derecho"):
         return "diestro"
@@ -182,12 +169,10 @@ def _normalize_foot(pie) -> str:
 
 
 def _map_position_family(position_code: str) -> str:
-    """Toma el primer código/nombre de posición (puede venir separado por
-    comas si hay varias) y lo mapea a su familia canónica, sin importar si
-    viene como código Wyscout (CB), abreviatura española (DFC) o nombre
-    completo (Defensa central). Si no encuentra coincidencia exacta, prueba
-    una coincidencia parcial (por si viene con matices, ej. "Central
-    izquierdo"); si tampoco encaja, devuelve el texto tal cual en vez de
+    """Toma el primer código/nombre de posición y lo mapea a su familia, 
+    sin importar si viene como código Wyscout, abreviatura española (DFC) 
+    o nombre completo. Si no encuentra coincidencia exacta, prueba
+    una coincidencia parcial; si tampoco encaja, devuelve el texto tal cual en vez de
     fallar, para que datos nuevos no rompan la app."""
     if not isinstance(position_code, str) or not position_code.strip():
         return "Sin especificar"
@@ -205,11 +190,10 @@ def _map_position_family(position_code: str) -> str:
     return first_code.title()
 
 
-# Tus ficheros de data/scout ya vienen pre-divididos por posición
+# Los ficheros de data/scout ya vienen pre-divididos por posición
 # (CENTRALES.xlsx, LD.xlsx, MCO.xlsx...). Cuando el nombre del fichero
-# coincide con esta lista, se usa como familia directamente — es más
-# fiable que derivarla del código de Wyscout, porque ya la decidiste tú
-# al organizar las carpetas.
+# coincide con esta lista, se usa como familia directamente, es más
+# fiable que derivarla del código de Wyscout.
 FILENAME_POSITION_FAMILY = {
     "centrales": "Central",
     "centrocampistas": "Mediocentro",
@@ -222,8 +206,7 @@ FILENAME_POSITION_FAMILY = {
 }
 
 # Nombres limpios, en el orden exacto en que Wyscout exporta el informe
-# "Team Stats" (46 columnas fijas). Si tu export tiene otro orden o nº
-# de columnas, esto lo detecta y avisa en vez de fallar en silencio.
+# "Team Stats".
 TEAM_STATS_CLEAN_COLUMNS = [
     "Date", "Match", "Competition", "Duration", "Team", "Scheme", "xG",
     "Shots total", "Shots on target", "Shots on target %",
@@ -254,9 +237,8 @@ def _read_any(path: Path) -> pd.DataFrame:
 
 
 def _iter_data_files(folder: Path) -> list[Path]:
-    """Busca ficheros de datos en cualquier subcarpeta (recursivo), para
-    que da igual cuántos niveles tengas (scout/1rfef/, scout/ligas/x/, etc.).
-    Ignora los ficheros temporales de Excel (~$...)."""
+    """Busca ficheros de datos en cualquier subcarpeta, para
+    que da igual cuántos niveles tengas."""
     if not folder.exists():
         return []
     return [
@@ -279,13 +261,11 @@ def _load_player_files(folder: Path, source_label: str) -> pd.DataFrame:
     """
     Carga todos los ficheros de jugadores dentro de `folder`, sin importar
     su nombre ni en qué subcarpeta estén: se identifican por tener columna
-    'Player' (los ficheros de Team_Stats se descartan automáticamente aquí
-    porque no la tienen).
+    'Player'.
 
     La liga se deriva de las subcarpetas intermedias entre `folder` y el
     fichero: scout/1rfef/CENTRALES.xlsx -> liga "1rfef".
-    Si el fichero está directamente en `folder` (sin subcarpeta, como en
-    udlaspalmas), la liga toma el propio source_label.
+    Si el fichero está directamente en `folder`, la liga toma el propio source_label.
     """
     frames = []
     for f in _iter_data_files(folder):
@@ -296,15 +276,15 @@ def _load_player_files(folder: Path, source_label: str) -> pd.DataFrame:
             continue
 
         raw = raw.rename(columns={k: v for k, v in COLUMN_ALIASES.items() if k in raw.columns})
-        raw = raw.loc[:, ~raw.columns.duplicated()]  # ej. si un fichero trae 'Pie' Y 'Foot' a la vez
+        raw = raw.loc[:, ~raw.columns.duplicated()]
 
         if not _is_player_file(raw):
-            continue  # es Team_Stats u otro fichero no reconocido: se ignora aquí
+            continue
 
         raw = raw.copy()
         raw["source"] = source_label
 
-        rel_parts = f.relative_to(folder).parts[:-1]  # subcarpetas, sin el nombre de fichero
+        rel_parts = f.relative_to(folder).parts[:-1]
         raw["league"] = "/".join(rel_parts) if rel_parts else source_label
 
         stem_key = f.stem.strip().lower()
@@ -321,10 +301,8 @@ def _load_player_files(folder: Path, source_label: str) -> pd.DataFrame:
 def _diagnose_source_files(folder: Path, source_label: str) -> list[dict]:
     """
     Igual que _load_player_files pero sin filtrar nada: recorre cada
-    fichero encontrado en `folder` y explica qué se hizo con él (cargado
-    como jugadores, cargado como Team_Stats, o descartado y por qué).
-    Pensado para depurar casos como "1rfef no aparece": aquí verás el
-    fichero, sus columnas reales, y el motivo exacto del descarte.
+    fichero encontrado en `folder` y explica qué se hizo con él.
+    Aquí se verá el fichero, sus columnas reales, y el motivo exacto del descarte.
     """
     registros = []
     for f in _iter_data_files(folder):
@@ -360,16 +338,15 @@ def _diagnose_source_files(folder: Path, source_label: str) -> list[dict]:
         elif _is_team_stats_file(raw):
             registros.append({
                 "source": source_label, "archivo": str(rel),
-                "estado": "OK - cargado como Team_Stats (no es tabla de jugadores)",
+                "estado": "OK - cargado como Team_Stats",
                 "detalle": f"{len(raw)} filas", "columnas": columnas_preview,
             })
         else:
             registros.append({
                 "source": source_label, "archivo": str(rel),
                 "estado": "DESCARTADO",
-                "detalle": "No tiene columna 'Player' (jugadores) ni 'Match'+'PPDA' (Team_Stats). "
-                            "Revisa si el nombre de columna es distinto (ej. 'Jugador', espacios, "
-                            "encoding) o si hay filas de cabecera antes de la fila real de títulos.",
+                "detalle": "No tiene columna 'Player' ni 'Match'+'PPDA' (Team_Stats). "
+                            "Revisa si el nombre de columna es distinto o si hay filas de cabecera antes de la fila real de títulos.",
                 "columnas": columnas_preview,
             })
     return registros
@@ -379,8 +356,7 @@ def _diagnose_source_files(folder: Path, source_label: str) -> list[dict]:
 def get_load_diagnostics() -> pd.DataFrame:
     """
     Diagnóstico completo de todas las fuentes (DATA_SOURCES): un registro
-    por cada fichero encontrado, cargado o no, con el motivo. Úsalo en un
-    expander del sidebar para ver de un vistazo por qué falta una liga.
+    por cada fichero encontrado, cargado o no, con el motivo.
     """
     registros = []
     for label, folder in DATA_SOURCES.items():
@@ -397,8 +373,8 @@ def get_load_diagnostics() -> pd.DataFrame:
 @st.cache_data
 def load_players() -> pd.DataFrame:
     """
-    Carga y unifica jugadores de mercado + cantera + primer equipo (+ selección).
-    Detecta ficheros de jugadores por contenido (columna 'Player'), no por
+    Carga y unifica jugadores de mercado + cantera + primer equipo.
+    Detecta ficheros de jugadores por contenido, no por
     nombre, así que da igual cómo los llames o en qué subcarpeta estén.
     """
     frames = [_load_player_files(folder, label) for label, folder in DATA_SOURCES.items()]
@@ -413,13 +389,11 @@ def load_players() -> pd.DataFrame:
 
     df = pd.concat(frames, ignore_index=True)
     # .copy() desfragmenta el DataFrame: sin esto, las columnas nuevas que
-    # se añaden a partir de aquí (position_family, foot...) sobre un
-    # DataFrame ya "cosido" de varios concat generan el PerformanceWarning
-    # de pandas por fragmentación interna.
+    # se añaden a partir de aquí sobre un DataFrame ya "cosido" de varios concat 
+    # generan el PerformanceWarning de pandas por fragmentación interna.
     df = df.copy()
 
-    # position_family: prioridad al nombre de fichero (scout ya viene
-    # pre-clasificado por carpeta/fichero de posición); si no aplica, se
+    # position_family: prioridad al nombre de fichero; si no aplica, se
     # deriva del código de posición de Wyscout.
     derived_family = (
         df["Position"].apply(_map_position_family) if "Position" in df.columns else "Sin especificar"
@@ -431,7 +405,7 @@ def load_players() -> pd.DataFrame:
         df["position_family"] = derived_family
 
     # Alias en minúsculas/snake_case para las partes de app.py que ya
-    # asumían nombres genéricos (player_name, team, age...).
+    # asumían nombres genéricos.
     rename_map = {
         "Player": "player_name",
         "Team": "team",
@@ -443,9 +417,9 @@ def load_players() -> pd.DataFrame:
         "Foot": "foot",
     }
     df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
-    df = df.loc[:, ~df.columns.duplicated()]  # protección extra tras el rename final
+    df = df.loc[:, ~df.columns.duplicated()]
 
-    # Normalizar el pie (mismo criterio que normalizar_pie en los notebooks):
+    # Normalizar el pie:
     # unifica 'right'/'derecho' -> 'diestro', etc. Si la columna no existe en
     # ningún fichero, el motor de similitud simplemente omite ese filtro.
     if "foot" in df.columns:
@@ -456,9 +430,8 @@ def load_players() -> pd.DataFrame:
     if "league" not in df.columns:
         df["league"] = "Sin especificar"
 
-    # Limpiar espacios sobrantes en nombre/equipo ANTES de deduplicar y de
-    # cualquier búsqueda por nombre: "Mika Marmol " y "Mika Marmol" (o con
-    # mayúsculas distintas en el equipo) se tratarían como jugadores
+    # Limpiar espacios sobrantes en nombre/equipo antes de deduplicar y de
+    # cualquier búsqueda por nombre: "Mika Marmol " y "Mika Marmol" se tratarían como jugadores
     # distintos y ni se deduplican ni se encuentran bien en las búsquedas.
     if "player_name" in df.columns:
         df["player_name"] = df["player_name"].astype(str).str.strip()
@@ -473,10 +446,7 @@ def load_players() -> pd.DataFrame:
     # Deduplicar: el mismo jugador puede aparecer en más de un fichero si tu
     # carpeta data/scout está organizada a la vez por posición (CENTRALES.xlsx)
     # y por liga (1rfef.xlsx) y ambas cubren a los mismos jugadores. Se
-    # considera duplicado el mismo jugador+equipo dentro del mismo origen
-    # (mercado/cantera/primer_equipo/seleccion); si aparece también en otro
-    # origen distinto (ej. filial promocionado al primer equipo) se conserva,
-    # porque ahí sí son dos situaciones reales distintas.
+    # considera duplicado el mismo jugador+equipo dentro del mismo origen.
     clave_duplicado = [c for c in ["player_name", "team", "source"] if c in df.columns]
     if clave_duplicado:
         antes = len(df)
@@ -491,8 +461,7 @@ def load_players() -> pd.DataFrame:
 
     # Segunda pasada, SOLO para 'primer_equipo': el mismo jugador puede
     # aparecer con el nombre abreviado ("E. Loioidice") en un fichero y
-    # completo ("Enzo Loioidice") en otro — no son duplicados exactos, así
-    # que la deduplicación de arriba no los pilla. Como la plantilla del
+    # completo ("Enzo Loioidice"). Como la plantilla del
     # primer equipo es pequeña y conocida (~25 jugadores), es seguro agrupar
     # por apellido + equipo aquí; en 'mercado' NO se hace esto porque con
     # miles de jugadores sí podría fusionar por error a dos personas

@@ -21,8 +21,7 @@ from sklearn.preprocessing import StandardScaler
 
 from data_loader import STYLE_METRICS, TEAM_TO_PLAYER_METRIC_MAP
 
-# Perfil de 5 métricas + pesos por cada position_family (mismas familias que
-# devuelve POSITION_FAMILY_MAP en data_loader.py). Es el equivalente en
+# Perfil de 5 métricas + pesos por cada position_family. Es el equivalente en
 # columnas en inglés de PERFILES_OBJETIVO en los notebooks; la única
 # diferencia es que aquí "Mediocentro" y "Mediocentro defensivo" van
 # separados porque data_loader.py ya distingue esas dos familias.
@@ -78,9 +77,9 @@ def compute_similarity_scores(
 ) -> pd.DataFrame:
     """
     Similitud jugador-vs-jugador: z-score + coseno sobre el perfil de
-    métricas de la familia de posición del jugador objetivo (en vez de PCA
-    genérico). same_position_family=True aplica la corrección de filtrado
-    por familia (en vez de código exacto) documentada en el TFM.
+    métricas de la familia de posición del jugador objetivo. 
+    same_position_family=True aplica la corrección de filtrado
+    por familia documentada en el TFM.
     """
     target_row = df[df["player_name"] == target_player]
     if target_row.empty:
@@ -106,7 +105,7 @@ def compute_similarity_scores(
 
     # Filtro de pie con fallback: si no hay candidatos con el mismo pie
     # dentro de esta familia de posición, se mantiene el grupo completo en
-    # vez de devolver un resultado vacío (mismo criterio que en el notebook).
+    # vez de devolver un resultado vacío.
     if "foot" in df.columns and target_row.get("foot") not in (None, "desconocido"):
         mismo_pie = candidates[candidates["foot"] == target_row["foot"]]
         if not mismo_pie.empty:
@@ -117,22 +116,20 @@ def compute_similarity_scores(
                 "familia de posición; se amplía la búsqueda a todos los pies."
             )
 
-    # Se rellenan los NaN de cada lado ANTES de concatenar (no después):
+    # Se rellenan los NaN de cada lado antes de concatenar:
     # concatenar con columnas todo-NaN dispara un FutureWarning de pandas
     # y además distorsiona el StandardScaler si se hiciera al revés.
     metricas_candidatos = candidates[metricas].apply(pd.to_numeric, errors="coerce")
     medianas = metricas_candidatos.median()
-    metricas_candidatos = metricas_candidatos.fillna(medianas).fillna(0)  # fillna(0): caso límite
-    # en el que TODOS los candidatos de la familia tienen NaN en una métrica
-    # (mediana también NaN); sin este último fillna, cosine_similarity falla.
+    metricas_candidatos = metricas_candidatos.fillna(medianas).fillna(0)
+    # en el que todos los candidatos de la familia tienen NaN en una métrica; 
+    # sin este último fillna, cosine_similarity falla.
 
     valor_target = pd.to_numeric(target_row[metricas], errors="coerce").fillna(medianas).fillna(0)
 
     # Descartar métricas sin variación real dentro de este grupo de
-    # candidatos (columna que no existe con ese nombre exacto en tus datos
-    # reales, o que queda a 0 para casi todos tras el fillna). Con muy pocas
-    # métricas con varianza de verdad, la similitud coseno degenera y da
-    # ~100% a todo el mundo — este filtro es lo que evita ese caso.
+    # candidatos. Con muy pocas métricas con varianza de verdad, 
+    # la similitud coseno degenera y da ~100% a todo el mundo.
     desviaciones = metricas_candidatos.std()
     metricas_validas = [m for m in metricas if desviaciones.get(m, 0) > 1e-9]
     metricas_descartadas = [m for m in metricas if m not in metricas_validas]
@@ -186,10 +183,9 @@ def compute_team_style_reference(
     team_stats_df: pd.DataFrame, team_name: str = "Las Palmas"
 ) -> pd.Series:
     """
-    Reduce el fichero Team_Stats (una fila por partido) a un único vector
-    de referencia: la media de cada métrica de estilo SOLO en los partidos
-    del propio equipo (filtra las filas donde Team == team_name, que
-    también incluyen las estadísticas del rival en cada partido).
+    Reduce el fichero Team_Stats a un único vector
+    de referencia: la media de cada métrica de estilo solo en los partidos
+    del propio equipo.
     """
     own_matches = team_stats_df[team_stats_df["Team"] == team_name]
     if own_matches.empty:
@@ -209,13 +205,12 @@ def compute_team_fit_scores(
     top_n: int = 20,
 ) -> pd.DataFrame:
     """
-    Puntúa cada jugador por cercanía a un perfil de estilo de EQUIPO fijo
-    (team_reference, viene de compute_team_style_reference()).
+    Puntúa cada jugador por cercanía a un perfil de estilo de equipo fijo.
 
     Metodología: para cada métrica emparejada equipo->jugador
-    (TEAM_TO_PLAYER_METRIC_MAP), estandarizamos la columna de jugadores
+    (TEAM_TO_PLAYER_METRIC_MAP), se estandariza la columna de jugadores
     con la media/desviación de la propia población de jugadores, y
-    expresamos el valor objetivo del equipo en esa misma escala
+    se expresa el valor objetivo del equipo en esa misma escala
     estandarizada. La distancia euclidiana en ese espacio compartido da
     el "encaje táctico" de cada jugador con el estilo del primer equipo.
     """

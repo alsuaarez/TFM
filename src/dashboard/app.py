@@ -1,6 +1,6 @@
 """
 Dashboard de scouting — UD Las Palmas
-Buscar cualquier jugador (mercado, cantera o primer equipo), ver su ficha,
+Buscar cualquier jugador, ver su ficha,
 y compararlo o buscar similares dentro de su familia de posición.
 
 Ejecutar desde la raíz del repo (TFM/):
@@ -20,9 +20,8 @@ from visualizations import style_radar_chart, similarity_bar_chart
 
 st.set_page_config(page_title="Scouting Dashboard — UD Las Palmas", layout="wide")
 
-# --- Escudo + título --------------------------------------------------------
-# Coloca el escudo en src/dashboard/assets/escudo_udlp.png (un PNG con fondo
-# transparente queda mejor). Si el fichero no existe todavía, el título se
+# Escudo + título
+# El escudo en src/dashboard/assets/imagem.png. Si el fichero no existe todavía, el título se
 # muestra igualmente sin romper la app.
 ASSETS_DIR = Path(__file__).resolve().parent / "assets"
 ESCUDO_PATH = next(
@@ -38,10 +37,10 @@ with col_titulo:
     st.title("Sistema de identificación y comparación de jugadores")
 st.caption("UD Las Palmas · Temporada 26/27")
 
-# --- Carga de datos --------------------------------------------------------
+# Carga de datos
 df = load_players()
 
-# --- Sidebar: filtros de búsqueda ------------------------------------------
+# Filtros de búsqueda
 st.sidebar.header("Filtros de búsqueda")
 
 leagues = ["Todas"] + sorted(df["league"].dropna().unique().tolist())
@@ -70,7 +69,7 @@ with st.sidebar.expander("Diagnóstico de carga de datos"):
     )
     st.dataframe(get_load_diagnostics(), use_container_width=True, hide_index=True)
 
-# --- Selección de jugador ---------------------------------------------------
+# Selección de jugador
 player_options = sorted(filtered["player_name"].unique().tolist())
 if not player_options:
     st.warning("Ningún jugador cumple los filtros seleccionados.")
@@ -78,7 +77,7 @@ if not player_options:
 
 selected_player = st.selectbox("Buscar jugador", player_options)
 
-# --- Ficha del jugador -------------------------------------------------------
+# Ficha del jugador
 row = get_player_row(df, selected_player)
 
 col_info, col_radar = st.columns([1, 1.4])
@@ -98,11 +97,7 @@ with col_info:
 
 with col_radar:
     st.markdown("**Perfil de estilo**")
-    # El radar solo debe poder compararse contra el PRIMER EQUIPO de la UD Las
-    # Palmas, sin importar los filtros de liga/familia/origen del sidebar
-    # (esos filtros son para elegir el jugador a analizar, no el rival de
-    # comparación). Por eso se saca de `df` completo, filtrando por
-    # source == "primer_equipo", en vez de `player_options`.
+    # El radar solo debe poder compararse contra el primer equipo de la UD Las Palmas
     primer_equipo_options = sorted(
         df[
             (df["source"] == "primer_equipo") & (df["player_name"] != selected_player)
@@ -127,7 +122,7 @@ tab_similares, tab_encaje = st.tabs(
     ["Jugadores similares", "Encaje con el estilo UD Las Palmas"]
 )
 
-# --- Tab 1: jugadores similares (jugador vs jugador) ------------------------
+# Tab 1: jugadores similares (jugador vs jugador)
 with tab_similares:
     st.subheader(f"Jugadores con estilo similar a {selected_player}")
 
@@ -151,7 +146,7 @@ with tab_similares:
         with col_chart:
             st.plotly_chart(similarity_bar_chart(similar_df), use_container_width=True)
 
-# --- Tab 2: encaje con el perfil de estilo del equipo -----------------------
+# Tab 2: encaje con el perfil de estilo del equipo
 with tab_encaje:
     st.subheader("Ranking de encaje táctico con el estilo del primer equipo")
     st.caption(

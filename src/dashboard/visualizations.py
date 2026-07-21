@@ -10,11 +10,11 @@ from data_loader import STYLE_METRICS
 
 def _normalize_row(df_reference: pd.DataFrame, row_raw: pd.Series, metrics: list[str]) -> dict:
     """
-    Normaliza un jugador (fila cruda) a 0-100 por métrica, usando min/max de
+    Normaliza un jugador a 0-100 por métrica, usando min/max de
     `df_reference` como escala. Se pasa la fila cruda en vez de pre-normalizar
-    todo el dataframe para poder usar la MISMA escala de referencia tanto en
+    todo el dataframe para poder usar la misma escala de referencia tanto en
     el jugador buscado como en el de comparación, aunque este último no esté
-    dentro de `df_reference` (ej. compara contra otra familia de posición).
+    dentro de `df_reference`.
     """
     out = {}
     for m in metrics:
@@ -26,7 +26,7 @@ def _normalize_row(df_reference: pd.DataFrame, row_raw: pd.Series, metrics: list
             out[m] = 50
         else:
             normalizado = 100 * (valor - min_v) / (max_v - min_v)
-            out[m] = min(max(normalizado, 0), 100)  # clip: el comparado puede caer fuera del rango de referencia
+            out[m] = min(max(normalizado, 0), 100) 
     return out
 
 
@@ -44,9 +44,9 @@ def style_radar_chart(
     target_raw = target_rows.iloc[0]
 
     # Normalizar dentro de la misma familia de posición del jugador buscado,
-    # no contra TODO el universo: mezclar porteros con delanteros aplastaba
-    # casi todas las métricas cerca de 0 salvo 1-2 ejes (el radar "roto" que
-    # se veía). Si el grupo es demasiado pequeño para ser representativo, se
+    # no contra todo el universo: mezclar porteros con delanteros aplasta
+    # casi todas las métricas cerca de 0 salvo 1-2 ejes. 
+    # Si el grupo es demasiado pequeño para ser representativo, se
     # usa el universo completo como respaldo.
     familia = target_raw.get("position_family") if "position_family" in df_full.columns else None
     universo_ref = df_full
