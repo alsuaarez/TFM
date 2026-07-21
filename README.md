@@ -144,6 +144,7 @@ Dado un jugador del club, busca los perfiles de mercado más parecidos usando z-
 
 ### 8. `comparador.ipynb` — Comparar jugadores
 Dado un jugador se compara con otro para buscar diferencias y similitudes. El uso correspondiente se haría cuando se requiera hacer un fichaje.
+
 ---
 
 ## Dashboard Streamlit
